@@ -130,6 +130,7 @@ struct FCMMessageEncodingTests {
         let msg    = FCMMessage(target: .fid("abc"))
         let raw    = try JSONEncoder().encode(msg)
         let string = String(data: raw, encoding: .utf8)!
+        // "fid" is the current field; "token" is deprecated per the discovery doc
         #expect(string.contains("\"fid\""))
         #expect(!string.contains("\"token\""))
     }
@@ -349,13 +350,15 @@ struct FCMWebpushConfigTests {
                 case analyticsLabel = "analytics_label"
             }
         }
+        let fcmOptions: Options?
 
         private enum CodingKeys: String, CodingKey {
             case headers, data, notification
+            case fcmOptions = "fcm_options"
         }
     }
 
-    @Test("encodes headers, data, and notification")
+    @Test("encodes headers, data, notification, and fcm_options")
     func fullConfig() throws {
         let config = FCMWebpushConfig(
             headers:      ["TTL": "86400"],
@@ -366,10 +369,12 @@ struct FCMWebpushConfigTests {
         let raw     = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(Decoded.self, from: raw)
 
-        #expect(decoded.headers?["TTL"]     == "86400")
-        #expect(decoded.data?["url"]        == "/dashboard")
-        #expect(decoded.notification?.title == "Web")
-        #expect(decoded.notification?.icon  == "https://example.com/icon.png")
+        #expect(decoded.headers?["TTL"]          == "86400")
+        #expect(decoded.data?["url"]             == "/dashboard")
+        #expect(decoded.notification?.title      == "Web")
+        #expect(decoded.notification?.icon       == "https://example.com/icon.png")
+        #expect(decoded.fcmOptions?.link         == "https://example.com")
+        #expect(decoded.fcmOptions?.analyticsLabel == "web-push")
     }
 }
 

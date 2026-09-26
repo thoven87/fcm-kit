@@ -9,8 +9,9 @@ solves this with two building blocks:
 
 - **``FCMClientProtocol``** — a protocol that exposes every public non-generic method.
   Depend on `any FCMClientProtocol` in your application types instead of the concrete class.
-- **``MockFCMClient``** — an `actor` test double (from `FCMKitTestSupport`) that records
+- **``MockFCMClient``** — a `final class` test double (from `FCMKitTestSupport`) that records
   every call and returns configurable stub values without touching the network.
+  Its mutable state is protected by a `Mutex` from Swift's `Synchronization` module, making it safe to use from parallel test tasks.
 
 ---
 
@@ -91,18 +92,16 @@ struct NotificationServiceTests {
 
         try await service.sendAlert(to: "device-abc", title: "Hello", body: "World")
 
-        // Assert call count
-        let count = await mock.sendCount
-        #expect(count == 1)
+        // MockFCMClient is a final class — properties are read directly, no await
+        #expect(mock.sendCount == 1)
 
-        // Inspect the recorded message
-        let msg = try #require(await mock.lastSentMessage)
+        let msg = try #require(mock.lastSentMessage)
         guard case .fid(let fid) = msg.target else {
             Issue.record("Expected .fid target"); return
         }
-        #expect(fid                    == "device-abc")
-        #expect(msg.notification?.title == "Hello")
-        #expect(msg.notification?.body  == "World")
+        #expect(fid                     == "device-abc")
+        #expect(msg.notification?.title  == "Hello")
+        #expect(msg.notification?.body   == "World")
     }
 
     // MARK: - Batch
@@ -112,14 +111,12 @@ struct NotificationServiceTests {
         let mock    = MockFCMClient()
         let tokens  = ["tok-1", "tok-2", "tok-3"]
 
-        // Call sendBatch directly through the protocol
         let results = try await mock.sendBatch(
             tokens.map { FCMMessage(target: .fid($0)) }
         )
 
-        #expect(results.count == 3)
-        let count = await mock.sendCount
-        #expect(count == 3)
+        #expect(results.count  == 3)
+        #expect(mock.sendCount == 3)
     }
 
     // MARK: - Error handling
@@ -129,21 +126,19 @@ struct NotificationServiceTests {
         let mock    = MockFCMClient()
         let service = NotificationService(fcm: mock)
 
-        // Arrange — direct assignment, no await needed
+        // Direct property assignment — no await
         mock.nextSendError = FCMError.serverError(
             status:  404,
             code:    .unregistered,
             message: "Token not registered"
         )
 
-        // Act + Assert
         await #expect(throws: FCMError.self) {
             try await service.sendAlert(to: "stale-token", title: "Hi", body: "")
         }
 
         // Message should NOT be recorded when an error is thrown
-        let count = await mock.sendCount
-        #expect(count == 0)
+        #expect(mock.sendCount == 0)
     }
 
     // MARK: - Topic subscriptions
@@ -155,15 +150,14 @@ struct NotificationServiceTests {
 
         try await service.subscribe(token: "device-abc", to: "breaking-news")
 
-        let calls = await mock.subscribeCalls
-        #expect(calls.count == 1)
-        #expect(calls[0].fid   == "device-abc")
-        #expect(calls[0].topic == "breaking-news")
+        #expect(mock.subscribeCalls.count == 1)
+        #expect(mock.subscribeCalls[0].fid   == "device-abc")
+        #expect(mock.subscribeCalls[0].topic == "breaking-news")
     }
 }
 ```
 
-> Note: `MockFCMClient` is a `final class`, so properties are directly readable and writable — no `await` needed.
+> Note: `MockFCMClient` is a `final class` backed by a `Mutex<State>` from Swift's `Synchronization` module. Properties are directly readable and writable with no `await` required. The mutex is held only for synchronous reads and writes — never across an `await` — so it is safe to use from parallel test tasks.
 
 ---
 

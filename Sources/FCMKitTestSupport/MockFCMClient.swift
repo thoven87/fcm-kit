@@ -1,10 +1,16 @@
 import FCMKit
 import Foundation
+import Synchronization
 
 // MARK: - MockFCMClient
 
-/// A test double for ``FCMClientProtocol`` that records calls and returns
-/// configurable stub values without making any real network requests.
+/// A thread-safe test double for ``FCMClientProtocol`` that records calls and
+/// returns configurable stub values without making any real network requests.
+///
+/// `MockFCMClient` is a `final class` whose mutable state is protected by a
+/// `Mutex` from the Swift `Synchronization` module, making it safe to share
+/// across concurrent test tasks. The mutex is held only for synchronous
+/// reads and writes — never across an `async` suspension point.
 ///
 /// Import `FCMKitTestSupport` in your test target and inject `MockFCMClient`
 /// wherever production code depends on `any FCMClientProtocol`:
@@ -41,55 +47,96 @@ import Foundation
 /// }
 /// ```
 ///
-/// Properties are directly assignable — no `await` needed:
+/// Stub properties are directly assignable — no `await` required:
 ///
 /// ```swift
-/// mock.nextSendError   = FCMError.serverError(...)   // throw on next send
+/// mock.nextSendError    = FCMError.serverError(...)   // throw on next send
 /// mock.stubbedMessageID = "projects/p/messages/42"   // control return value
 /// ```
-public final class MockFCMClient: FCMClientProtocol, @unchecked Sendable {
+public final class MockFCMClient: FCMClientProtocol, Sendable {
+
+    // MARK: - Protected state
+
+    private struct State: Sendable {
+        var sentMessages:          [FCMMessage]                   = []
+        var subscribeCalls:        [(fid: String, topic: String)] = []
+        var unsubscribeCalls:      [(fid: String, topic: String)] = []
+        var nextSendError:         (any Error)?
+        var nextBatchError:        (any Error)?
+        var nextSubscriptionError: (any Error)?
+        var stubbedMessageID     = "projects/test/messages/mock-id"
+        var stubbedSubscription  = FCMTopicSubscription(
+            name:      "projects/test/registrations/mock-fid/topicSubscriptions/mock-topic",
+            topicName: "mock-topic"
+        )
+        var stubbedPage = FCMTopicSubscriptionsPage(topicSubscriptions: [])
+    }
+
+    private let _state: Mutex<State>
+
+    // MARK: - Init
+
+    public init() {
+        _state = Mutex(State())
+    }
 
     // MARK: - Recorded calls
 
-    /// Every message passed to ``send(_:validateOnly:)`` or included in ``sendBatch(_:)``.
-    public private(set) var sentMessages: [FCMMessage] = []
+    /// Every message passed to ``send(_:validateOnly:)`` or ``sendBatch(_:)``.
+    public var sentMessages: [FCMMessage] {
+        _state.withLock { $0.sentMessages }
+    }
 
-    /// Arguments passed to ``subscribe(fid:to:)`` and ``createSubscription(fid:to:)``,
-    /// in call order.
-    public private(set) var subscribeCalls: [(fid: String, topic: String)] = []
+    /// Arguments passed to ``subscribe(fid:to:)`` and ``createSubscription(fid:to:)``.
+    public var subscribeCalls: [(fid: String, topic: String)] {
+        _state.withLock { $0.subscribeCalls }
+    }
 
-    /// Arguments passed to ``unsubscribe(fid:from:)``, in call order.
-    public private(set) var unsubscribeCalls: [(fid: String, topic: String)] = []
+    /// Arguments passed to ``unsubscribe(fid:from:)``.
+    public var unsubscribeCalls: [(fid: String, topic: String)] {
+        _state.withLock { $0.unsubscribeCalls }
+    }
 
     // MARK: - Stubs
 
     /// Error thrown by the next ``send(_:validateOnly:)`` call.
     /// Cleared automatically after it is thrown once.
-    public var nextSendError: (any Error)?
+    public var nextSendError: (any Error)? {
+        get { _state.withLock { $0.nextSendError } }
+        set { _state.withLock { $0.nextSendError = newValue } }
+    }
 
     /// Error thrown by the next ``sendBatch(_:)`` call.
     /// Cleared automatically after it is thrown once.
-    public var nextBatchError: (any Error)?
+    public var nextBatchError: (any Error)? {
+        get { _state.withLock { $0.nextBatchError } }
+        set { _state.withLock { $0.nextBatchError = newValue } }
+    }
 
     /// Error thrown by the next topic-subscription call.
     /// Cleared automatically after it is thrown once.
-    public var nextSubscriptionError: (any Error)?
+    public var nextSubscriptionError: (any Error)? {
+        get { _state.withLock { $0.nextSubscriptionError } }
+        set { _state.withLock { $0.nextSubscriptionError = newValue } }
+    }
 
-    /// Message name returned by ``send(_:validateOnly:)`` and ``sendBatch(_:)``.
-    /// Default: `"projects/test/messages/mock-id"`.
-    public var stubbedMessageID = "projects/test/messages/mock-id"
+    /// Message name returned by send calls. Default: `"projects/test/messages/mock-id"`.
+    public var stubbedMessageID: String {
+        get { _state.withLock { $0.stubbedMessageID } }
+        set { _state.withLock { $0.stubbedMessageID = newValue } }
+    }
 
-    /// Subscription returned by ``subscribe(fid:to:)``, ``createSubscription(fid:to:)``,
-    /// and ``getSubscription(fid:topic:)``.
-    public var stubbedSubscription = FCMTopicSubscription(
-        name:      "projects/test/registrations/mock-fid/topicSubscriptions/mock-topic",
-        topicName: "mock-topic"
-    )
+    /// Subscription returned by subscribe / get / create calls.
+    public var stubbedSubscription: FCMTopicSubscription {
+        get { _state.withLock { $0.stubbedSubscription } }
+        set { _state.withLock { $0.stubbedSubscription = newValue } }
+    }
 
-    /// Page returned by ``listSubscriptions(fid:pageSize:pageToken:)``.
-    public var stubbedPage = FCMTopicSubscriptionsPage(topicSubscriptions: [])
-
-    public init() {}
+    /// Page returned by list calls.
+    public var stubbedPage: FCMTopicSubscriptionsPage {
+        get { _state.withLock { $0.stubbedPage } }
+        set { _state.withLock { $0.stubbedPage = newValue } }
+    }
 
     // MARK: - Helpers
 
@@ -99,68 +146,65 @@ public final class MockFCMClient: FCMClientProtocol, @unchecked Sendable {
     /// Total number of individual messages recorded across all send calls.
     public var sendCount: Int { sentMessages.count }
 
-    /// Resets all recorded calls and pending errors, returning the mock to its initial state.
+    /// Resets all recorded calls and pending errors to their initial state.
     public func reset() {
-        sentMessages.removeAll()
-        subscribeCalls.removeAll()
-        unsubscribeCalls.removeAll()
-        nextSendError         = nil
-        nextBatchError        = nil
-        nextSubscriptionError = nil
+        _state.withLock { $0 = State() }
     }
 
     // MARK: - FCMClientProtocol
 
     public func send(_ message: FCMMessage, validateOnly: Bool) async throws -> String {
-        if let error = nextSendError {
-            nextSendError = nil
-            throw error
+        let result = _state.withLock { s -> Result<String, any Error> in
+            if let e = s.nextSendError { s.nextSendError = nil; return .failure(e) }
+            s.sentMessages.append(message)
+            return .success(s.stubbedMessageID)
         }
-        sentMessages.append(message)
-        return stubbedMessageID
+        return try result.get()
     }
 
     public func sendBatch(_ messages: [FCMMessage]) async throws -> [Result<String, any Error>] {
-        if let error = nextBatchError {
-            nextBatchError = nil
-            throw error
+        let result = _state.withLock { s -> Result<String, any Error> in
+            if let e = s.nextBatchError { s.nextBatchError = nil; return .failure(e) }
+            s.sentMessages.append(contentsOf: messages)
+            return .success(s.stubbedMessageID)
         }
-        sentMessages.append(contentsOf: messages)
-        return messages.map { _ in .success(stubbedMessageID) }
+        let id = try result.get()
+        return messages.map { _ in .success(id) }
     }
 
     public func createSubscription(fid: String, to topic: String) async throws -> FCMTopicSubscription {
-        if let error = nextSubscriptionError {
-            nextSubscriptionError = nil
-            throw error
+        let result = _state.withLock { s -> Result<FCMTopicSubscription, any Error> in
+            if let e = s.nextSubscriptionError { s.nextSubscriptionError = nil; return .failure(e) }
+            s.subscribeCalls.append((fid: fid, topic: topic))
+            return .success(s.stubbedSubscription)
         }
-        subscribeCalls.append((fid: fid, topic: topic))
-        return stubbedSubscription
+        return try result.get()
     }
 
     public func subscribe(fid: String, to topic: String) async throws -> FCMTopicSubscription {
-        if let error = nextSubscriptionError {
-            nextSubscriptionError = nil
-            throw error
+        let result = _state.withLock { s -> Result<FCMTopicSubscription, any Error> in
+            if let e = s.nextSubscriptionError { s.nextSubscriptionError = nil; return .failure(e) }
+            s.subscribeCalls.append((fid: fid, topic: topic))
+            return .success(s.stubbedSubscription)
         }
-        subscribeCalls.append((fid: fid, topic: topic))
-        return stubbedSubscription
+        return try result.get()
     }
 
     public func unsubscribe(fid: String, from topic: String) async throws {
-        if let error = nextSubscriptionError {
-            nextSubscriptionError = nil
-            throw error
+        let error = _state.withLock { s -> (any Error)? in
+            if let e = s.nextSubscriptionError { s.nextSubscriptionError = nil; return e }
+            s.unsubscribeCalls.append((fid: fid, topic: topic))
+            return nil
         }
-        unsubscribeCalls.append((fid: fid, topic: topic))
+        if let error { throw error }
     }
 
     public func getSubscription(fid: String, topic: String) async throws -> FCMTopicSubscription {
-        if let error = nextSubscriptionError {
-            nextSubscriptionError = nil
-            throw error
+        let result = _state.withLock { s -> Result<FCMTopicSubscription, any Error> in
+            if let e = s.nextSubscriptionError { s.nextSubscriptionError = nil; return .failure(e) }
+            return .success(s.stubbedSubscription)
         }
-        return stubbedSubscription
+        return try result.get()
     }
 
     public func listSubscriptions(
@@ -168,10 +212,10 @@ public final class MockFCMClient: FCMClientProtocol, @unchecked Sendable {
         pageSize:  Int,
         pageToken: String?
     ) async throws -> FCMTopicSubscriptionsPage {
-        if let error = nextSubscriptionError {
-            nextSubscriptionError = nil
-            throw error
+        let result = _state.withLock { s -> Result<FCMTopicSubscriptionsPage, any Error> in
+            if let e = s.nextSubscriptionError { s.nextSubscriptionError = nil; return .failure(e) }
+            return .success(s.stubbedPage)
         }
-        return stubbedPage
+        return try result.get()
     }
 }

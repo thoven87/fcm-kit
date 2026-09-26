@@ -64,8 +64,14 @@ public struct FCMAPNSConfig: Encodable, Sendable {
 
 // MARK: - FCMAPNSPayload
 
-/// Wrapper for the APNs payload object, containing the ``FCMAPS`` dictionary
-/// and any custom payload keys required by your app.
+/// The APNs payload sent through FCM's `apns.payload` field.
+///
+/// This type models the `aps` dictionary only. FCM passes it verbatim to APNs.
+/// If your app requires additional top-level custom keys alongside `aps`
+/// (e.g. `{ "aps": {...}, "acme": "value" }`), encode the message manually
+/// and pass it via ``FCMAPNSConfig/payload`` using a custom ``FCMAPNSPayload``
+/// subtype or by omitting ``FCMAPNSConfig/payload`` and setting the raw keys
+/// through a bespoke `Encodable` in a custom ``FCMJSONEncoder``.
 public struct FCMAPNSPayload: Encodable, Sendable {
 
     /// The APNs `aps` dictionary.

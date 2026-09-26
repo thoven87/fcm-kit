@@ -4,10 +4,8 @@ import PackageDescription
 let package = Package(
     name: "fcm-kit",
     platforms: [
-        .macOS(.v13),
-        .iOS(.v16),
-        .tvOS(.v16),
-        .watchOS(.v9),
+        .macOS(.v15),
+        .iOS(.v18),
     ],
     products: [
         // Core FCM client library
