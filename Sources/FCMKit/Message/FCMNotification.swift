@@ -1,18 +1,28 @@
-/// Cross-platform notification that appears in all device types.
+/// Cross-platform notification template displayed on all target platforms.
 ///
-/// For platform-specific overrides use ``FCMAndroidConfig/notification``,
-/// ``FCMAPNSConfig``, or ``FCMWebpushConfig/notification``.
+/// Use platform-specific configs (``FCMAPNSConfig``, ``FCMAndroidConfig``,
+/// ``FCMWebpushConfig``) to override or extend these values per platform.
 public struct FCMNotification: Encodable, Sendable {
 
-    /// Title displayed in the notification.
+    /// The notification title displayed in the system tray or banner.
     public var title: String?
 
-    /// Body text of the notification.
+    /// The body text of the notification.
     public var body: String?
 
-    /// URL of an image shown in the notification.
+    /// URL of an image downloaded and displayed inside the notification.
+    ///
+    /// JPEG, PNG and BMP have full cross-platform support.
+    /// Animated GIF and video work on iOS only.
+    /// Android enforces a 1 MB image size limit.
     public var imageURL: String?
 
+    /// Creates a cross-platform notification.
+    ///
+    /// - Parameters:
+    ///   - title:    Notification title. Overridden per-platform if a platform config is set.
+    ///   - body:     Notification body text. Overridden per-platform if a platform config is set.
+    ///   - imageURL: URL of an image to display inside the notification.
     public init(
         title:    String? = nil,
         body:     String? = nil,

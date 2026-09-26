@@ -15,14 +15,12 @@ import FCMKit
 @main
 struct Program {
     static func main() async {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        // HTTPClient.shared is a process-wide singleton; no manual shutdown required.
         do {
-            try await run(httpClient: httpClient)
+            try await run(httpClient: .shared)
         } catch {
             fputs("Error: \(error)\n", stderr)
         }
-        // Shutdown is always attempted, even on error.
-        try? await httpClient.shutdown()
     }
 
     // MARK: -
@@ -69,7 +67,7 @@ struct Program {
 
         let messageID = try await client.send(
             FCMMessage(
-                target: .token(deviceToken),
+                target: .fid(deviceToken),
                 notification: FCMNotification(
                     title: "Hello from FCMKit!",
                     body:  "A clean, Swift 6-native FCM client."
@@ -109,7 +107,7 @@ struct Program {
 
         let batch: [FCMMessage] = (1...3).map { i in
             FCMMessage(
-                target: .topic("demo"),
+                target: .topic("demo"),  // topics unchanged
                 notification: FCMNotification(title: "Batch \(i)/3", body: "Hello!")
             )
         }

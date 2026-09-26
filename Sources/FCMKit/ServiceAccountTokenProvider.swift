@@ -3,13 +3,12 @@ import JWTKit
 import AsyncHTTPClient
 import NIOCore
 
-/// OAuth 2.0 token manager.
+/// OAuth 2.0 token provider that signs a JWT with a Firebase service-account
+/// RSA key and exchanges it for a Bearer token at `oauth2.googleapis.com`.
 ///
-/// - Validates the RSA private key once at initialisation.
-/// - Caches the access token and refreshes it automatically 60 seconds before expiry.
-actor TokenProvider {
-
-    // MARK: - State
+/// This is the correct provider when running outside GCP (local development,
+/// non-Google cloud, on-premises, etc.).
+actor ServiceAccountTokenProvider: TokenProviding {
 
     private let credentials: ServiceAccount
     private let httpClient:  HTTPClient
@@ -17,27 +16,20 @@ actor TokenProvider {
     private var cachedToken: String?
     private var tokenExpiry: Date = .distantPast
 
-    // MARK: - Init
-
-    /// Throws ``FCMError/invalidCredentials(_:)`` if the private-key PEM is malformed.
+    /// - Throws: ``FCMError/invalidCredentials(_:)`` if the private-key PEM is malformed.
     init(
         credentials: ServiceAccount,
         httpClient:  HTTPClient,
         decoder:     any FCMJSONDecoder
     ) throws {
-        // Validate key format eagerly so failures surface at initialisation,
-        // not buried inside the first send call.
+        // Validate the key eagerly so failures surface at init time.
         _ = try Insecure.RSA.PrivateKey(pem: credentials.privateKey)
         self.credentials = credentials
         self.httpClient  = httpClient
         self.decoder     = decoder
     }
 
-    // MARK: - Interface
-
-    /// Returns a valid Bearer token, refreshing from Google if needed.
     func validToken() async throws -> String {
-        // Refresh 60 s before actual expiry to avoid races on slow connections.
         if let token = cachedToken, tokenExpiry > Date(timeIntervalSinceNow: 60) {
             return token
         }
@@ -56,7 +48,6 @@ actor TokenProvider {
 
     private func signJWT() async throws -> String {
         let now = Date()
-
         let payload = GoogleJWTPayload(
             iss:   IssuerClaim(value: credentials.clientEmail),
             scope: "https://www.googleapis.com/auth/firebase.messaging",
@@ -64,8 +55,6 @@ actor TokenProvider {
             iat:   IssuedAtClaim(value: now),
             exp:   ExpirationClaim(value: now.addingTimeInterval(3_600))
         )
-
-        // Re-parse per refresh — negligible cost (~µs) vs the network round-trip.
         let rsaKey = try Insecure.RSA.PrivateKey(pem: credentials.privateKey)
         let keys   = JWTKeyCollection()
         await keys.add(
@@ -73,14 +62,10 @@ actor TokenProvider {
             digestAlgorithm: .sha256,
             kid:             JWKIdentifier(string: credentials.privateKeyID)
         )
-        return try await keys.sign(
-            payload,
-            kid: JWKIdentifier(string: credentials.privateKeyID)
-        )
+        return try await keys.sign(payload, kid: JWKIdentifier(string: credentials.privateKeyID))
     }
 
     private func exchangeJWT(_ jwt: String) async throws -> OAuthToken {
-        // RFC 7523 — JWT Bearer grant
         let assertion   = jwt.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? jwt
         let formPayload = "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=\(assertion)"
 
@@ -106,7 +91,7 @@ actor TokenProvider {
     }
 }
 
-// MARK: - Private types
+// MARK: - Private JWT payload
 
 private struct GoogleJWTPayload: JWTPayload {
     var iss:   IssuerClaim
@@ -117,17 +102,5 @@ private struct GoogleJWTPayload: JWTPayload {
 
     func verify(using _: some JWTAlgorithm) throws {
         try exp.verifyNotExpired()
-    }
-}
-
-private struct OAuthToken: Decodable {
-    let accessToken: String
-    let expiresIn:   Int
-    let tokenType:   String
-
-    private enum CodingKeys: String, CodingKey {
-        case accessToken = "access_token"
-        case expiresIn   = "expires_in"
-        case tokenType   = "token_type"
     }
 }

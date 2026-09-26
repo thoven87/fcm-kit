@@ -1,23 +1,34 @@
 /// Web Push protocol overrides for an FCM message.
 public struct FCMWebpushConfig: Encodable, Sendable {
 
-    /// HTTP headers, e.g. `["TTL": "86400"]`.
+    /// HTTP headers forwarded to the Web Push endpoint, e.g. `["TTL": "86400"]`.
     public var headers: [String: String]?
 
     /// Arbitrary key/value data delivered to the web app.
+    /// Overrides the message-level ``FCMMessage/data``.
     public var data: [String: String]?
 
-    /// Web notification options.
+    /// Web Notification API options.
     public var notification: FCMWebpushNotification?
+
+    /// FCM SDK feature options for Web (deep-link and analytics label).
+    public var fcmOptions: FCMWebpushOptions?
 
     public init(
         headers:      [String: String]?       = nil,
         data:         [String: String]?       = nil,
-        notification: FCMWebpushNotification? = nil
+        notification: FCMWebpushNotification? = nil,
+        fcmOptions:   FCMWebpushOptions?      = nil
     ) {
         self.headers      = headers
         self.data         = data
         self.notification = notification
+        self.fcmOptions   = fcmOptions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case headers, data, notification
+        case fcmOptions = "fcm_options"
     }
 }
 
