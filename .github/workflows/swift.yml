@@ -1,0 +1,25 @@
+name: test
+on:
+- pull_request
+jobs:
+  test:
+    container:
+      image: swift:6.2-bookworm
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: swift test
+  thread:
+    container:
+      image: swift:6.2-bookworm
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: swift test --sanitize=thread
+  address:
+    container:
+      image: swift:6.2-bookworm
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: ASAN_OPTIONS=detect_leaks=0 swift test --sanitize=address
