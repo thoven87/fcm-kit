@@ -15,11 +15,10 @@ import FCMKit
 @main
 struct Program {
     static func main() async {
-        // HTTPClient.shared is a process-wide singleton; no manual shutdown required.
         do {
             try await run(httpClient: .shared)
         } catch {
-            fputs("Error: \(error)\n", stderr)
+            print("Error:", error)
         }
     }
 
@@ -32,21 +31,15 @@ struct Program {
         let credentials: ServiceAccount
 
         if let json = ProcessInfo.processInfo.environment["FIREBASE_SA_JSON"] {
-            // Inline JSON string — handy for secret managers or CI env vars.
             credentials = try ServiceAccount.load(fromJSON: json)
         } else if let path = ProcessInfo.processInfo.environment["SA_PATH"] {
-            // File path on disk.
             credentials = try ServiceAccount.load(contentsOfFile: path)
         } else {
-            fputs(
-                """
+            fatalError("""
                 Set one of:
                   FIREBASE_SA_JSON  — raw service-account JSON string
-                  SA_PATH           — path to service-account JSON file\n
-                """,
-                stderr
-            )
-            exit(1)
+                  SA_PATH           — path to service-account JSON file
+                """)
         }
 
         let deviceToken = ProcessInfo.processInfo.environment["DEVICE_TOKEN"] ?? ""
@@ -107,7 +100,7 @@ struct Program {
 
         let batch: [FCMMessage] = (1...3).map { i in
             FCMMessage(
-                target: .topic("demo"),  // topics unchanged
+                target: .topic("demo"),
                 notification: FCMNotification(title: "Batch \(i)/3", body: "Hello!")
             )
         }
