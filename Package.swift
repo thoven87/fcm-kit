@@ -4,13 +4,14 @@ import PackageDescription
 let package = Package(
     name: "fcm-kit",
     platforms: [
-        .macOS(.v13),
-        .iOS(.v16),
-        .tvOS(.v16),
-        .watchOS(.v9),
+        .macOS(.v15),
+        .iOS(.v18),
     ],
     products: [
+        // Core FCM client library
         .library(name: "FCMKit", targets: ["FCMKit"]),
+        // Test support — import in test targets only
+        .library(name: "FCMKitTestSupport", targets: ["FCMKitTestSupport"]),
     ],
     dependencies: [
         .package(
@@ -40,6 +41,16 @@ let package = Package(
             ]
         ),
 
+        // ── Test support ───────────────────────────────────────────────────────
+        // Import FCMKitTestSupport in your test targets to get MockFCMClient.
+        .target(
+            name: "FCMKitTestSupport",
+            dependencies: ["FCMKit"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+
         // ── Runnable example ───────────────────────────────────────────────────
         .executableTarget(
             name: "FCMKitExample",
@@ -55,7 +66,10 @@ let package = Package(
         // ── Tests ──────────────────────────────────────────────────────────────
         .testTarget(
             name: "FCMKitTests",
-            dependencies: ["FCMKit"],
+            dependencies: [
+                "FCMKit",
+                "FCMKitTestSupport",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

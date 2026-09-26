@@ -166,6 +166,30 @@ for (index, result) in results.enumerated() {
 }
 ```
 
+## Topic Subscriptions
+
+FCMKit implements the FCM v1 Topic Subscription API — the modern replacement for the
+deprecated IID `batchAdd`/`batchRemove` endpoints.
+
+```swift
+// Subscribe (idempotent)
+try await client.subscribe(fid: deviceToken, to: "breaking-news")
+
+// Unsubscribe (idempotent)
+try await client.unsubscribe(fid: deviceToken, from: "breaking-news")
+
+// Get a specific subscription
+let sub = try await client.getSubscription(fid: deviceToken, topic: "breaking-news")
+
+// List all subscriptions for a device (paginated)
+var pageToken: String? = nil
+repeat {
+    let page = try await client.listSubscriptions(fid: deviceToken, pageToken: pageToken)
+    page.topicSubscriptions.forEach { print($0.topicName ?? "") }
+    pageToken = page.nextPageToken
+} while pageToken != nil
+```
+
 ## Dry-run validation
 
 Pass `validateOnly: true` to have FCM validate the message structure without delivering it — useful in CI or staging environments:

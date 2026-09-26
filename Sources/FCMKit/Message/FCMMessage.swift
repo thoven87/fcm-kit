@@ -1,11 +1,10 @@
 /// An FCM HTTP v1 message.
 ///
-/// Exactly one of `token`, `topic`, or `condition` must be set — enforced at
-/// the type level via ``Target``.
+/// Exactly one delivery target must be set — enforced at the type level via ``Target``.
 ///
 /// ```swift
 /// let msg = FCMMessage(
-///     target: .token("device-registration-token"),
+///     target: .fid("device-registration-token-or-fid"),
 ///     notification: FCMNotification(title: "Hello", body: "World"),
 ///     data: ["deeplink": "/home"]
 /// )
@@ -16,11 +15,13 @@ public struct FCMMessage: Encodable, Sendable {
 
     /// The delivery target for the message.
     public enum Target: Sendable {
-        /// A single device registration token.
-        case token(String)
+        /// A Firebase Installation ID (FID) or device registration token.
+        ///
+        /// Encodes as the `"fid"` JSON field, which replaced the deprecated `"token"` field.
+        case fid(String)
         /// A topic name (without the `/topics/` prefix).
         case topic(String)
-        /// A boolean condition expression, e.g. `"'TopicA' in topics"`.
+        /// A boolean condition expression, e.g. `"'sport' in topics && 'tech' in topics"`.
         case condition(String)
     }
 
@@ -28,10 +29,12 @@ public struct FCMMessage: Encodable, Sendable {
 
     public let target: Target
 
-    /// Base notification shown on all platforms.
+    /// Base notification displayed on all platforms.
     public var notification: FCMNotification?
 
-    /// Arbitrary key/value data delivered to the app.
+    /// Arbitrary key/value data delivered to the app (UTF-8, max 4 KB total).
+    ///
+    /// Keys must not start with `"google."`, `"gcm."`, or equal `"from"` / `"message_type"`.
     public var data: [String: String]?
 
     /// Android-specific overrides.
@@ -40,8 +43,11 @@ public struct FCMMessage: Encodable, Sendable {
     /// APNS (Apple Push Notification service) overrides.
     public var apns: FCMAPNSConfig?
 
-    /// Web-push overrides.
+    /// Web Push overrides.
     public var webpush: FCMWebpushConfig?
+
+    /// Cross-platform FCM SDK feature options (e.g. analytics label).
+    public var fcmOptions: FCMOptions?
 
     // MARK: - Init
 
@@ -51,7 +57,8 @@ public struct FCMMessage: Encodable, Sendable {
         data:         [String: String]? = nil,
         android:      FCMAndroidConfig? = nil,
         apns:         FCMAPNSConfig?    = nil,
-        webpush:      FCMWebpushConfig? = nil
+        webpush:      FCMWebpushConfig? = nil,
+        fcmOptions:   FCMOptions?       = nil
     ) {
         self.target       = target
         self.notification = notification
@@ -59,6 +66,7 @@ public struct FCMMessage: Encodable, Sendable {
         self.android      = android
         self.apns         = apns
         self.webpush      = webpush
+        self.fcmOptions   = fcmOptions
     }
 
     // MARK: - Encodable
@@ -67,7 +75,7 @@ public struct FCMMessage: Encodable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
 
         switch target {
-        case .token(let v):     try c.encode(v, forKey: .token)
+        case .fid(let v):       try c.encode(v, forKey: .fid)
         case .topic(let v):     try c.encode(v, forKey: .topic)
         case .condition(let v): try c.encode(v, forKey: .condition)
         }
@@ -77,10 +85,12 @@ public struct FCMMessage: Encodable, Sendable {
         try c.encodeIfPresent(android,      forKey: .android)
         try c.encodeIfPresent(apns,         forKey: .apns)
         try c.encodeIfPresent(webpush,      forKey: .webpush)
+        try c.encodeIfPresent(fcmOptions,   forKey: .fcmOptions)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case token, topic, condition
+        case fid, topic, condition
         case notification, data, android, apns, webpush
+        case fcmOptions = "fcm_options"
     }
 }

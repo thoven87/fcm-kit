@@ -29,6 +29,8 @@ targets: [
 
 ## Getting Started
 
+> Before writing any Swift code, complete the Firebase project and credentials setup described in <doc:GoogleCloudSetup>.
+
 ### 1. Load credentials
 
 Download your service-account JSON from the Firebase console
@@ -54,8 +56,7 @@ plug in any Foundation-compatible coder. `JSONDecoder`/`JSONEncoder` work out of
 ```swift
 import AsyncHTTPClient
 
-let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-// Manage the HTTPClient lifecycle in your own shutdown/teardown path.
+let httpClient = HTTPClient.shared  // process-wide singleton; no shutdown needed
 
 let client = try FCMClient(
     credentials: account,
@@ -147,6 +148,97 @@ FCMMessage(
 )
 ```
 
+## Live Activities (iOS 16+)
+
+FCM forwards Live Activity pushes to APNs via the `live_activity_token` field.
+FCMKit provides typed, generic methods that handle the `aps` payload construction for you.
+
+### Prerequisites
+
+- App has the **ActivityKit push notifications** entitlement
+- Your `ActivityAttributes` conformer is `Encodable & Sendable`
+- Push-to-start requires iOS 17.2+; update/end requires iOS 16.2+
+
+### Update a running Live Activity
+
+```swift
+struct GameScore: Encodable, Sendable { let home: Int; let away: Int }
+
+try await client.sendLiveActivity(
+    target:            .fid(deviceToken),
+    liveActivityToken: activity.pushToken,          // from ActivityKit
+    event:             .update,
+    contentState:      GameScore(home: 3, away: 1),
+    timestamp:         Int(Date().timeIntervalSince1970)
+)
+```
+
+### End a Live Activity
+
+```swift
+try await client.sendLiveActivity(
+    target:            .fid(deviceToken),
+    liveActivityToken: activity.pushToken,
+    event:             .end,
+    contentState:      GameScore(home: 3, away: 1),
+    timestamp:         Int(Date().timeIntervalSince1970),
+    dismissalDate:     .immediately             // or .timeIntervalSince1970InSeconds(...)
+)
+```
+
+### Start a Live Activity remotely (push-to-start, iOS 17.2+)
+
+```swift
+struct GameAttributes: Encodable, Sendable { let matchID: String }
+
+try await client.sendLiveActivity(
+    target:            .fid(deviceToken),
+    liveActivityToken: activity.pushToStartToken,   // from ActivityKit
+    contentState:      GameScore(home: 0, away: 0),
+    attributesType:    "GameAttributes",            // exact Swift type name
+    attributes:        GameAttributes(matchID: "final-2026"),
+    timestamp:         Int(Date().timeIntervalSince1970),
+    alert:             FCMAPSAlert(title: "Match started!", body: "Tap to follow live.")
+)
+```
+
+## Topic Subscriptions
+
+FCMKit implements the FCM v1 Topic Subscription API — the modern replacement for the
+deprecated IID `batchAdd`/`batchRemove` endpoints.
+
+### Subscribe
+
+```swift
+// Idempotent — returns existing subscription without error if already subscribed
+let sub = try await client.subscribe(fid: deviceToken, to: "breaking-news")
+print(sub.createTime ?? "")
+```
+
+### Unsubscribe
+
+```swift
+// Idempotent — no error if not subscribed
+try await client.unsubscribe(fid: deviceToken, from: "breaking-news")
+```
+
+### Get a specific subscription
+
+```swift
+let sub = try await client.getSubscription(fid: deviceToken, topic: "breaking-news")
+```
+
+### List all subscriptions for a device
+
+```swift
+var pageToken: String? = nil
+repeat {
+    let page = try await client.listSubscriptions(fid: deviceToken, pageToken: pageToken)
+    page.topicSubscriptions.forEach { print($0.topicName ?? "") }
+    pageToken = page.nextPageToken
+} while pageToken != nil
+```
+
 ## Batch Sending
 
 ``FCMClient/sendBatch(_:)`` fetches the OAuth token once and then fires all
@@ -186,6 +278,17 @@ try await client.send(message, validateOnly: true)
 - ``FCMConfiguration``
 - ``FCMMessage``
 - ``FCMError``
+- ``FCMServerErrorCode``
+
+### Live Activities
+- ``FCMLiveActivityEvent``
+- ``FCMLiveActivityDismissalDate``
+- ``FCMLiveActivityAPS``
+- ``FCMLiveActivityStartAPS``
+
+### Topic Subscriptions
+- ``FCMTopicSubscription``
+- ``FCMTopicSubscriptionsPage``
 
 ### Notification Payload
 - ``FCMNotification``
@@ -198,3 +301,7 @@ try await client.send(message, validateOnly: true)
 ### Coding
 - ``FCMJSONDecoder``
 - ``FCMJSONEncoder``
+
+### Guides
+- <doc:GoogleCloudSetup>
+- <doc:TestingWithFCMKit>
